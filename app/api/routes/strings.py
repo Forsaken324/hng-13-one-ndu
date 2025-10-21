@@ -235,3 +235,20 @@ async def get_specific_string(session: SessionDep, string_value: str):
         status_code=status.HTTP_200_OK,
         content=response
     )
+
+
+@router.delete('/{string_value_d}/')
+async def delete_string(session: SessionDep, string_value_d: str):
+    str_in_db = session.exec(select(String).where(String.id == hash_string(string_value_d))).first()
+    if not str_in_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='String does not exist in the system'
+        )
+    session.delete(str_in_db)
+    session.commit()
+
+    return JSONResponse(
+        status_code=status.HTTP_204_NO_CONTENT,
+        content={}
+    )
