@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 from ..deps import SessionDep
 from model import String, StringPayload
-from ..lib.helpers import is_palindrome, unique_characters, word_count, format_response, hash_string
+from ..lib.helpers import is_palindrome, unique_characters, word_count, format_response, hash_string, build_response
 from datetime import datetime, timezone
 
 
-from sqlmodel import select
+from sqlmodel import select, and_
 
 router = APIRouter(
     prefix='/strings',
@@ -55,11 +55,6 @@ async def create_string(session: SessionDep, string: StringPayload):
     )
 
 
-
-
-
-
-
 @router.get('/')
 async def get_string_filtered(
     session: SessionDep, 
@@ -69,47 +64,39 @@ async def get_string_filtered(
     word_count: int | None = None, 
     contains_character: str | None = None
 ):
-    if not all([min_length, max_length, word_count, contains_character]) or is_palindrome == None:
+    if any(param is None for param in [is_palindrome, min_length, max_length, word_count, contains_character]):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail='Invalid query parameter value'            
+            detail='Invalid query parameter value'
         )
 
-    db_result = session.exec(select(String).where(
+    db_result = session.exec(select(String).where(and_(
         String.is_palindrome == is_palindrome, 
         String.length >= min_length, # type: ignore
         String.length <= max_length, # type: ignore
         String.word_count == word_count,
-        String.value.contains(contains_character) # type: ignore
-    )).all()
+        String.value.ilike(f"%{contains_character}%") # type: ignore
+    ))).all()
 
-    data = [0] * len(db_result)
-    count = 0
-    for string in db_result:
-        data[count] = format_response(string) # type: ignore
-        count += 1
-    
-    response = {}
-    response['data'] = data
-    response['count'] = count
-    response['filters_applied'] = {
-        'is_palindrome': is_palindrome,
-        'min_length': min_length,
-        'max_length': max_length,
-        'word_count': word_count,
-        'contains_character': contains_character
+    data = [format_response(s) for s in db_result]
+
+    return {
+        "data": data,
+        "count": len(data),
+        "filters_applied": {
+            "is_palindrome": is_palindrome,
+            "min_length": min_length,
+            "max_length": max_length,
+            "word_count": word_count,
+            "contains_character": contains_character
+        }
     }
-
-    return JSONResponse(
-        status_code=status.HTTP_200_OK,
-        content=response    
-    )
 
 
 @router.get('/filter-by-natural-language')
 async def filter_by_natural_language(session: SessionDep, query: str | None = None):
     supported_operations = {
-        'all single word palindrome strings': 0,
+        'all single word palindromic strings': 0,
         'strings longer than 10 characters': 1,
         'palindromic strings that contain the first vowel': 2,
         'strings containing the letter z': 3,
@@ -121,103 +108,40 @@ async def filter_by_natural_language(session: SessionDep, query: str | None = No
         )
     if not query in supported_operations:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='Query parsed but resulted in conflicting filters'
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Unable to parse natural language query'
         )
     
     match supported_operations[query]:
         case 0:
-            db_result = session.exec(select(String).where(String.is_palindrome == True, String.word_count == 1)).all()
-            data = [0] * len(db_result)
-            count = 0
-            for string in db_result:
-                data[count] = format_response(string) # type: ignore
-                count += 1
-            response = {}
-            response['data'] = data
-            response['count'] = count
-            response['interpreted_query'] = {
-                'original': 'all single word palindrome strings',
-                'parsed_filters': {
+            db_result = session.exec(select(String).where(and_(String.is_palindrome == True, String.word_count == 1))).all()
+            return build_response(db_result, 'all single word palindrome strings', {
                     'word_count': 1,
                     'is_palindrome': True
-                }
-            }
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=response
-            )
-            
+                })
         
         case 1:
             db_result = session.exec(select(String).where(String.length > 10)).all()
-            data = [0] * len(db_result)
-            count = 0
-            for string in db_result:
-                data[count] = format_response(string) # type: ignore
-                count += 1
-            response = {}
-            response['data'] = data
-            response['count'] = count
-            response['interpreted_query'] = {
-                'original': 'strings longer than 10 characters',
-                'parsed_filters': {
+            return build_response(db_result, 'strings longer than 10 characters', {
                     'min_length': 11
-                }
-            }   
-
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=response
-            )
+                })
         
         case 2:
-            db_result = session.exec(select(String).where(
+            db_result = session.exec(select(String).where(and_(
                 String.is_palindrome == True,
                 String.value.ilike('%a%') # type: ignore
-            )).all()
-            data = [0] * len(db_result)
-            count = 0
-            for string in db_result:
-                data[count] = format_response(string) # type: ignore
-                count += 1
-            response = {}
-            response['data'] = data
-            response['count'] = count
-            response['interpreted_query'] = {
-                'original': 'palindromic strings that contain the first vowel',
-                'parsed_filters': {
+            ))).all()
+            return build_response(db_result, 'palindromic strings that contain the first vowel', {
                     'is_palindrome': True,
                     'contains_character': 'a'
-                }
-            }
-
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=response    
-            )
+                })
         
         case _:
             db_result = session.exec(select(String).where(String.value.contains('z'))).all() # type: ignore
-            data = [0] * len(db_result)
-            count = 0
-            for string in db_result:
-                data[count] = format_response(string) # type: ignore
-                count += 1
-            response = {}
-            response['data'] = data
-            response['count'] = count
-            response['interpreted_query'] = {
-                'original': 'strings containing the letter z',
-                'parsed_filters': {
+            return build_response(db_result, 'strings containing the letter z', {
                     'contains_character': 'z'
-                }
-            }
+                })
 
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=response
-            )
 
 
 @router.get('/{string_value}/')

@@ -3,7 +3,8 @@ from model import String
 import hashlib
 
 def is_palindrome(text: str) -> bool:
-    return text == text[::-1]
+    text_copy = text.lower()
+    return text_copy == text_copy[::-1]
 
 def chr_frequency_map(text: str) -> dict:
     freq_dict = defaultdict(int)
@@ -46,3 +47,15 @@ def format_response(str_obj: String):
 
 def hash_string(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def build_response(db_result, original, parsed_filters):
+    data = [format_response(s) for s in db_result]
+    return {
+        "data": data,
+        "count": len(data),
+        "interpreted_query": {
+            "original": original,
+            "parsed_filters": parsed_filters
+        }
+    }
